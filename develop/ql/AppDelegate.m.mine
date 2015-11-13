@@ -1,0 +1,942 @@
+//
+//  AppDelegate.m
+//  ql
+//
+//  Created by ChenFeng on 14-1-7.
+//  Copyright (c) 2014年 ChenFeng. All rights reserved.
+//
+
+#import "AppDelegate.h"
+#import "SidebarViewController.h"
+#import "CRNavigationController.h"
+#import "GuidePageViewController.h"
+#import "Global.h"
+#import "DBOperate.h"
+#import "FileManager.h"
+#import "NSString+DES.h"
+#import "headParseClass.h"
+#import "ThemeManager.h"
+
+#import "ChatTcpHelper.h"
+#import "TcpRequestHelper.h"
+#import "whole_users_model.h"
+//#import "LoginManager.h"
+#import "UIImage+extra.h"
+#import "secret_message_model.h"
+#import "upgrade_model.h"
+#import "config.h"
+#import "NetManager.h"
+#import "UIImageView+WebCache.h"
+
+//#import "BPush.h"
+
+#import "LocalNotifyManager.h"
+#import "chatmsg_list_model.h"
+
+@implementation AppDelegate
+@synthesize nav;
+@synthesize province;
+@synthesize city;
+@synthesize area;
+@synthesize headerImage;
+@synthesize myDeviceToken;
+@synthesize delegate = _delegate;
+
+
+#pragma mark - ============didFinishLaunching============
+
+- (void)dealloc
+{
+    [changeImage release]; changeImage = nil;
+    [screenView release]; screenView = nil;
+    [super dealloc];
+}
+
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
+{
+    //初始化后台状态值
+    [Global sharedGlobal].isBackGround = NO;
+    
+    
+    self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    //初始化主题
+    [self initTheme];
+    // 初始化配置文件
+    [self initSystemConfig];
+    
+    // 初始化框架 nav 及 bar 及 状态设置
+    [self initShellFrame];
+
+    // 初始化经纬度
+    [self initCLLocationCoord];
+    
+    // 推送通知注册 及 开启定位
+	[self applicationRegisterAndLocation];
+    
+    //百度云推送
+//    [BPush setupChannel:launchOptions];
+//    [BPush setDelegate:self];
+    
+    // 创建数据库
+	[self operateDB];
+    
+    
+    [self.window makeKeyAndVisible];
+    
+    //闪屏效果
+    screenView=[[UIView alloc]initWithFrame:self.window.frame];
+    changeImage=[[UIImageView alloc]initWithFrame:self.window.frame];
+    
+    //从文件夹取出图片，是uiimage的格式（如果是url会有延迟）
+    NSArray *paths = NSSearchPathForDirectoriesInDomains( NSDocumentDirectory,                                                                          NSUserDomainMask, YES);
+    NSString *documentsDirectory = [paths objectAtIndex:0];
+    NSString *filePath2 = [documentsDirectory stringByAppendingPathComponent:[[NSUserDefaults standardUserDefaults] stringForKey:@"ScreenImageUrl"]];
+    
+    UIImage *img = [UIImage imageWithContentsOfFile:filePath2];
+    [changeImage setImage:img];
+
+    [screenView addSubview:changeImage];
+    [self.window addSubview:screenView];
+
+    [self performSelector:@selector(changeScreen) withObject:nil afterDelay:1.0]; //1秒后执行TheAnimation
+    
+    //本地推送测试
+//    [[LocalNotifyManager shareManager] showLocalNotifyMessage:@"hsdsdsdkak"];
+    
+    return YES;
+}
+
+- (void)changeScreen {
+    CATransition *animation = [CATransition animation]; //场转动画
+    animation.duration = 0.7 ;  // 动画持续时间(秒)
+    animation.timingFunction = UIViewAnimationCurveEaseInOut; //慢进慢出,从头到尾的流畅度
+    animation.type = kCATransitionFade;//淡入淡出效果
+    [[screenView layer] addAnimation:animation forKey:@"animation"];//要令一个转场生效，组要将动画添加到将要变为动画视图所附着的图层
+    
+    [self performSelector:@selector(resginScreen) withObject:nil afterDelay:1.0];//1秒后执行TheAnimation
+
+}
+
+//闪屏消失
+- (void)resginScreen {
+    //闪屏消失时，展示出加载框
+    mbProgressHUD.hidden = NO;
+    [screenView removeFromSuperview];
+}
+
+//闪屏网络请求
+-(void) changeScreenImage{
+    NSString* reqUrl = @"image/screenImage.do?param=";
+    NSMutableDictionary* requestDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                       [Global sharedGlobal].org_id,@"org_id",
+                                       [UIScreen mainScreen].bounds.size.width,@"width",
+                                       [UIScreen mainScreen].bounds.size.height,@"height",
+                                       [[NSUserDefaults standardUserDefaults] objectForKey:@"ScreenImageUrlTS"],@"ts",
+                                       nil];
+    [[NetManager sharedManager] accessService:requestDic data:nil command:CHANGE_SCREENIMAGE_ID accessAdress:reqUrl delegate:self withParam:nil];
+}
+
+- (void)autoLoginJuger
+{
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"isAutoLogin"]) {
+        //配置org_id
+        
+        if (![Common connectedToNetwork]) {
+            UIAlertView * netWork = [[UIAlertView alloc]initWithTitle:@"网络连接失败"
+                                                              message:@"是否退出重新登陆"
+                                                             delegate:self
+                                                    cancelButtonTitle:@"否"
+                                                    otherButtonTitles:@"是", nil];
+            netWork.tag = 300;
+            [netWork show];
+            RELEASE_SAFE(netWork);
+        }
+        
+        [self showProgressHud];
+        //出现闪屏页面时，不展示出加载框
+        mbProgressHUD.hidden = YES;
+        
+        [Global sharedGlobal].org_id = [whole_users_model getPreviousOrgId];
+        [LoginManager shareLoginManager].delegete = self;
+        [[LoginManager shareLoginManager] autoLogin];
+        
+        //自动登陆时，加载最新闪屏图，替换旧的，保证存的是最新的闪屏图
+        [self changeScreenImage];
+    }
+}
+
+#pragma mark - loginManager
+-(void) accessContactFinished:(LoginManager *)sender{
+    [self removeProgressHud];
+}
+
+-(void) LoginConnectFail{
+    [self removeProgressHud];
+}
+
+-(void) loginFailed:(LoginManager *)sender{
+    [self removeProgressHud];
+}
+
+-(void) loginWithError:(LoginManager *)sender{
+    [self removeProgressHud];
+}
+
+//指示框
+-(void) showProgressHud{
+    if (mbProgressHUD == nil) {
+        mbProgressHUD = [[MBProgressHUD alloc] initWithView:self.window];
+        mbProgressHUD.labelText = @"云端同步中";
+        mbProgressHUD.mode = MBProgressHUDModeCustomView;
+        [self.window addSubview:mbProgressHUD];
+    }
+    
+    [mbProgressHUD show:YES];
+}
+
+- (void)removeProgressHud{
+    [mbProgressHUD hide:YES];
+    [mbProgressHUD removeFromSuperViewOnHide];
+}
+
+#pragma mark - ===========SystemConfigMethod============
+//初始化主题
+- (void)initTheme {
+    NSString *themeName = [[NSUserDefaults standardUserDefaults] objectForKey:kThemeName];
+    if (themeName.length == 0) {
+        return;
+    }
+    [ThemeManager shareInstance].themeName = themeName;
+    
+    DLog(@"当前主题：%@",themeName);
+}
+
+// 初始化配置文件
+- (void)initSystemConfig
+{
+    NSMutableArray *arr = [[NSMutableArray alloc] init];
+    [Global sharedGlobal].netWorkQueueArray = arr;
+    RELEASE_SAFE(arr);
+    
+    //自动登陆，需要使用org_id，先赋值出来
+    [Global sharedGlobal].org_id = [whole_users_model getPreviousOrgId];
+}
+
+// 初始化框架 nav 及 bar 及 状态设置
+- (void)initShellFrame
+{
+    SidebarViewController *sideCtr = [[SidebarViewController alloc] init];
+    CRNavigationController *navC = [[CRNavigationController alloc] initWithRootViewController:sideCtr];
+    navC.navigationBarHidden = YES;
+    navC.navigationBar.opaque = NO;
+    
+    [[UINavigationBar appearance] setTitleTextAttributes:[NSDictionary dictionaryWithObject:[UIColor whiteColor] forKey:UITextAttributeTextColor]];
+    
+    if (IOS_VERSION_7) {
+        sideCtr.edgesForExtendedLayout = UIRectEdgeNone;
+        sideCtr.extendedLayoutIncludesOpaqueBars = NO;
+        sideCtr.automaticallyAdjustsScrollViewInsets = YES;
+        sideCtr.navigationController.navigationBar.translucent = NO;
+        sideCtr.modalPresentationCapturesStatusBarAppearance = NO;
+        [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent];
+        [[UINavigationBar appearance] setBarTintColor:[[ThemeManager shareInstance] getColorWithName:@"COLOR_TOPBAR"]];
+        
+    }else{
+        UIColor *navigationBarColor = [[ThemeManager shareInstance] getColorWithName:@"COLOR_TOPBAR"];
+        [[UINavigationBar appearance] setBackgroundImage:[UIImage imageWithColor:navigationBarColor size:CGSizeMake(320, 44)] forBarMetrics:UIBarMetricsDefault];
+        navC.navigationBar.translucent = YES;
+    }
+    
+    RELEASE_SAFE(sideCtr);
+    self.nav = navC;
+    self.window.rootViewController = self.nav;
+    RELEASE_SAFE(navC);
+    self.window.backgroundColor = [UIColor whiteColor];
+}
+
+// 创建数据库
+- (void)operateDB{
+    int soft_ver = [[NSUserDefaults standardUserDefaults] integerForKey:APP_SOFTWARE_VER_KEY];
+	if(soft_ver != CURRENT_APP_VERSION)
+	{
+        [FileManager removeFileDB:AppDataBaseName];
+
+        [[NSUserDefaults standardUserDefaults] setInteger:CURRENT_APP_VERSION forKey:APP_SOFTWARE_VER_KEY];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+	}
+    
+    //创建应用数据表
+    [DBOperate createApplicationDB];
+}
+
+// 初始化经纬度
+- (void)initCLLocationCoord{
+    //经纬度初始化
+    CLLocationCoordinate2D defaultLocation;
+    defaultLocation.latitude = 22.548604;
+    defaultLocation.longitude = 114.064515;
+    [Global sharedGlobal].myLocation = defaultLocation;
+}
+
+// 推送通知注册 及 开启定位
+- (void)applicationRegisterAndLocation{
+    
+    //清楚角标数字
+//    [UIApplication sharedApplication].applicationIconBadgeNumber = 0;
+    
+    //推送通知注册
+    NSString *token = [[NSUserDefaults standardUserDefaults] stringForKey:TOKEN_KEY];
+    if (token != nil) {
+		self.myDeviceToken = token;
+        
+        NSLog(@"myDeviceToken==%@",self.myDeviceToken);
+        //获取位置
+        [self getLocation];
+	} else {
+        //注册消息通知 获取token号
+        [[UIApplication sharedApplication]registerForRemoteNotificationTypes:UIRemoteNotificationTypeBadge | UIRemoteNotificationTypeSound | UIRemoteNotificationTypeAlert];
+    }
+    
+    //监听消息推送
+    [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(launchNotification:)name:@"UIApplicationDidFinishLaunchingNotification" object:nil];
+}
+
+#pragma mark - ==============NetworkAccess============
+
+//获取设备令牌
+-(void) accessAPNS{
+    NSString* reqUrl = @"apns.do?param=";
+    NSString* token = [[NSUserDefaults standardUserDefaults] stringForKey:TOKEN_KEY];
+    NSMutableDictionary* requestDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                       [NSNumber numberWithInt:0],@"platform",
+                                       token,@"token",
+                                       [NSNumber numberWithInt:CURRENT_APP_VERSION],@"upgrade_ver",
+                                       nil];
+    [[NetManager sharedManager] accessService:requestDic data:nil command:APNS_COMMAND_ID accessAdress:reqUrl delegate:self withParam:nil];
+}
+
+//请求回调
+- (void)didFinishCommand:(NSMutableArray*)resultArray cmd:(int)commandid withVersion:(int)ver{
+	NSLog(@"information finish:%d",commandid);
+    
+    //add by devin  用于网络不佳提示语
+    if (resultArray == nil) {
+        //add by devin 登陆时，用特定的提示语（不用MB）
+        if ([self.delegate respondsToSelector:@selector(LoginConnectFail)]) {
+            [self.delegate LoginConnectFail];
+        }
+        return;
+    }
+    
+    ParseMethod method = ^{
+        switch (commandid) {
+            case APNS_COMMAND_ID:
+            {
+                NSDictionary * resultDic = [resultArray firstObject];
+                NSAutoreleasePool *pool = [[NSAutoreleasePool alloc]init];
+                
+                if (resultDic) {
+                    //创建模型
+                    upgrade_model* upMod = [[upgrade_model alloc] init];
+                    [upMod deleteDBdata];
+                    NSDictionary* upgDic = [resultDic objectForKey:@"upgrade"];
+                    NSDictionary* aDic = [NSDictionary dictionaryWithObjectsAndKeys:
+                                          [upgDic objectForKey:@"ver"],@"ver",
+                                          [upgDic objectForKey:@"url"],@"url",
+                                          [upgDic objectForKey:@"score_url"],@"scoreUrl",
+                                          [upgDic objectForKey:@"remark"],@"remark",
+                                          nil];
+                    [upMod insertDB:aDic];
+                    RELEASE_SAFE(upMod);
+                    
+                    secret_message_model* secMsgMod = [[secret_message_model alloc] init];
+                    //保存评分地址   弃用
+                    [[NSUserDefaults standardUserDefaults] setValue:[resultDic objectForKey:@"gradeUrl"] forKey:GRADEURL];
+                    
+                    NSDictionary* secDic = [resultDic objectForKey:@"secretary"];
+                    NSDictionary* secModDic = [NSDictionary dictionaryWithObjectsAndKeys:
+                                               [secDic objectForKey:@"id"],@"user_id",
+                                               [secDic objectForKey:@"realname"],@"realname",
+                                               [secDic objectForKey:@"portrait"],@"portrait",
+                                               nil];
+                    
+                    [Global sharedGlobal].secretInfo = secModDic;
+                    
+                    //各类型小秘书文本
+                    NSArray* secMsgModArr = [secMsgMod getList];
+                    if (secMsgModArr.count) {
+                        [secMsgMod deleteDBdata];
+                    }
+                    
+                    NSArray* secMsgArr = [resultDic objectForKey:@"secretary_message"];
+                    for (NSDictionary* dic in secMsgArr) {
+                        NSDictionary* smDic = [NSDictionary dictionaryWithObjectsAndKeys:
+                                               [dic objectForKey:@"type"],@"type",
+                                               [dic objectForKey:@"message"],@"message",
+                                               nil];
+                        [secMsgMod insertDB:smDic];
+                    }
+                    RELEASE_SAFE(secMsgMod);
+                }
+                
+                [pool release];
+                
+                //设备令牌
+                upgrade_model* upgradeMod = [[upgrade_model alloc] init];
+                NSArray* arr = [upgradeMod getList];
+                [upgradeMod release];
+                
+                if ([[[arr lastObject] objectForKey:@"ver"] intValue] > CURRENT_APP_VERSION) {
+                    [self checkUpdateApp];
+                }
+                //        [self goGrageUrl];
+                
+            }
+                break;
+            case CHANGE_SCREENIMAGE_ID:
+            {
+                // 判断是否有网络
+                NSDictionary * resultDic = [resultArray firstObject];
+                if (resultDic) {
+                    int resultInt = [[resultDic objectForKey:@"rcode"] intValue];
+                    if (resultInt) {
+                        //线程加载图片，以免界面卡死
+                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                            if ([[resultDic objectForKey:@"state"] intValue]==0) {
+                                
+                                //删除闪屏根目录
+                                NSFileManager *fileManager = [NSFileManager defaultManager];
+                                NSArray *paths = NSSearchPathForDirectoriesInDomains( NSDocumentDirectory,                                                                          NSUserDomainMask, YES);
+                                NSString *documentsDirectory = [paths objectAtIndex:0];
+                                NSString *filePath = [documentsDirectory stringByAppendingPathComponent:[[NSUserDefaults standardUserDefaults] stringForKey:@"ScreenImageUrl"]];
+                                if ([filePath isEqualToString:documentsDirectory]) {
+                                    return;
+                                }
+                                [fileManager removeItemAtPath:filePath error:nil];
+                            }else{
+                                NSString *path = [resultDic objectForKey:@"pic_url"];
+                                //此处首先指定了图片存取路径（默认写到应用程序沙盒中）
+                                NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask, YES);
+                                
+                                //取出图片名
+                                NSArray* arr = [path componentsSeparatedByString:@"/"];
+                                NSString* imgName = [arr lastObject];
+                                
+                                //并给文件起个文件名，以url作为图片名
+                                NSString *uniquePath=[[paths objectAtIndex:0] stringByAppendingPathComponent:imgName];
+                                
+                                BOOL blHave=[[NSFileManager defaultManager] fileExistsAtPath:uniquePath];
+                                if (blHave) {
+                                    
+                                }else{
+                                    NSURL *url = [NSURL URLWithString:path];
+                                    NSData *data = [NSData dataWithContentsOfURL:url]; //url 转化为data格式
+                                    
+                                    //此处的方法是将图片写到Documents文件中
+                                    BOOL writeSuccess = [data writeToFile:uniquePath atomically:YES];
+                                    NSLog(@"--write:%d--",writeSuccess);
+                                }
+                                //保存图片地址
+                                [[NSUserDefaults standardUserDefaults] setValue:imgName forKey:@"ScreenImageUrl"];
+                            }
+                            //保存个性化闪屏的ts
+                            [[NSUserDefaults standardUserDefaults] setValue:[resultDic objectForKey:@"ts"] forKey:@"ScreenImageUrlTS"];
+                        });
+                    }else {
+                        NSLog(@"网络请求数据失败");
+                    }
+                }else {
+                    NSLog(@"服务器数据为空");
+                }
+            }
+                break;
+            default:
+                break;
+        }
+    };
+    [Common securelyparseHttpResultArr:resultArray andMethod:method];
+}
+
+//设备令牌
+- (void)updateApns:(NSMutableArray *)resultArray
+{
+    //升级提醒、评分提醒
+    [self checkUpdateApp];
+    [self goGrageUrl];
+}
+
+#pragma mark - UIAlertViewDelegate
+
+-(void) alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex{
+    if (buttonIndex != alertView.cancelButtonIndex) {
+        //设备令牌
+        upgrade_model* upgradeMod = [[upgrade_model alloc] init];
+        NSArray* arr = [upgradeMod getList];
+        [upgradeMod release];
+        
+        switch (alertView.tag) {
+            case 100:
+            {
+                [[UIApplication sharedApplication] openURL:[NSURL URLWithString:[[arr firstObject] objectForKey:@"url"]]];
+            }
+                break;
+            case 200:
+            {
+                [[UIApplication sharedApplication] openURL:[NSURL URLWithString:[[arr firstObject] objectForKey:@"scoreUrl"]]];
+            }
+                break;
+            case 300:
+            {
+                [Global sharedGlobal].isLogin = NO;
+                [Global sharedGlobal].userInfo = nil;
+                [Global sharedGlobal].user_id = nil;
+                //下次程序启动是否自动登录状态判断
+                [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"isAutoLogin"];
+                
+                //设置默认的账号信息为空
+                [[NSUserDefaults standardUserDefaults] setObject:nil forKey:kPreviousOrgID];
+                [[NSUserDefaults standardUserDefaults] setObject:nil forKey:kPreviousUserName];
+                [[NSUserDefaults standardUserDefaults] synchronize];
+                
+                //删除闪屏根
+                NSFileManager *fileManager = [NSFileManager defaultManager];
+                NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,                                                                          NSUserDomainMask, YES);
+                NSString *documentsDirectory = [paths objectAtIndex:0];
+                NSString *filePath = [documentsDirectory stringByAppendingPathComponent:[[NSUserDefaults standardUserDefaults] stringForKey:@"ScreenImageUrl"]];
+                if ([filePath isEqualToString:documentsDirectory]) {
+                    return;
+                }
+                [fileManager removeItemAtPath:filePath error:nil];
+                
+            }
+                break;
+            default:
+                break;
+        }
+        
+        //        NSString* urlStr = [[[arr firstObject] objectForKey:@"url"] stringByReplacingOccurrencesOfString:@"https" withString:@"itms-apps"];
+        
+        //把https换成items-apps
+        //        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:urlStr]];
+    }
+}
+
+// 新版本更新
+- (void)checkUpdateApp
+{
+    BOOL is_show_update_alert = [[NSUserDefaults standardUserDefaults] boolForKey:IS_SHOW_UPDATE_ALERT];
+    if (!is_show_update_alert)
+    {
+        upgrade_model *nAVMod =[[upgrade_model alloc] init];
+        NSMutableArray *upgradeArray = [nAVMod getList];
+        [nAVMod release];
+        
+        if ([upgradeArray count] > 0)
+        {
+            NSDictionary *upgradeDic = [upgradeArray objectAtIndex:0];
+            NSString *url = [upgradeDic objectForKey:@"url"];
+            NSString *remark = [upgradeDic objectForKey:@"remark"];
+            
+            if (url.length > 0)
+            {
+//                [[NSUserDefaults standardUserDefaults] setBool:YES forKey:IS_SHOW_UPDATE_ALERT];
+//                由于要每次都要提醒 所以现在的是否提醒按钮设置为NO
+                [[NSUserDefaults standardUserDefaults] setBool:NO forKey:IS_SHOW_UPDATE_ALERT];
+                [[NSUserDefaults standardUserDefaults] synchronize];
+                
+//                UIAlertView *alertView = [[UIAlertView alloc]initWithTitle:@"发现新版本！有好多新变化呢，快去体验一下吧~" message:remark delegate:self cancelButtonTitle:@"暂不体验" otherButtonTitles:@"马上更新", nil];
+//                alertView.tag = 100;
+//                [alertView show];
+//                [alertView release];
+                
+//                版本升级 在1.4的版本上只要是大于4的都强制升级
+                UIAlertView *alertView = [[UIAlertView alloc]initWithTitle:@"发现新版本！有好多新变化呢，快去体验一下吧~" message:remark delegate:self cancelButtonTitle:nil otherButtonTitles:@"马上更新", nil];
+                alertView.tag = 100;
+                [alertView show];
+                [alertView release];
+            }
+        }
+    }
+    
+}
+
+//评分提醒
+- (void)goGrageUrl
+{
+    int appOpenNum = [[NSUserDefaults standardUserDefaults] integerForKey:APP_OPEN_NUM];
+    if (appOpenNum == 6)
+    {
+        upgrade_model* upgradeMod = [[upgrade_model alloc] init];
+        NSArray* arr = [upgradeMod getList];
+        RELEASE_SAFE(upgradeMod);
+        
+        NSString* scoreUrl = [[arr lastObject] objectForKey:@"scoreUrl"];
+        
+        if (scoreUrl.length > 0)
+        {
+            [[NSUserDefaults standardUserDefaults] setInteger:appOpenNum + 1 forKey:APP_OPEN_NUM];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+            
+            UIAlertView *alertView = [[UIAlertView alloc]initWithTitle:@"" message:@"亲，看在大家都是吃货的份上，给个好评吧～" delegate:self cancelButtonTitle:@"残忍地拒绝" otherButtonTitles:@"赐个好评", nil];
+            alertView.tag = 200;
+            [alertView show];
+            [alertView release];
+        }
+    }
+    else
+    {
+        [[NSUserDefaults standardUserDefaults] setInteger:appOpenNum + 1 forKey:APP_OPEN_NUM];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+}
+
+#pragma mark - =============LocationManager============
+// 定位获取位置
+- (void)getLocation
+{
+    if ([Common isLoctionOpen]) {
+        CLLocationManager *manger = [[CLLocationManager alloc] init];
+        [Global sharedGlobal].locManager = manger;
+        RELEASE_SAFE(manger);
+        [Global sharedGlobal].locManager.desiredAccuracy = kCLLocationAccuracyBest;
+        [Global sharedGlobal].locManager.delegate = self;
+        [[Global sharedGlobal].locManager startUpdatingLocation];
+    } else {
+        [self locationSelf];
+    }
+}
+
+// 得到定位地址
+- (NSString *)getAddress:(NSString *)address
+{
+    NSRange rang = [address rangeOfString:@"省"];
+    if (rang.length == 0) {
+        rang = [address rangeOfString:@"区"];
+        if (rang.length == 0) {
+            return address;
+        } else {
+            return [address substringFromIndex:rang.length + rang.location];
+        }
+    } else {
+        return [address substringFromIndex:rang.length + rang.location];
+    }
+}
+
+// 定位城市赋值
+- (void)locationSelf
+{
+#if TARGET_IPHONE_SIMULATOR
+    self.city = @"深圳市";
+    self.province = @"广东省";
+    self.area = @"南山区";
+#elif TARGET_OS_IPHONE
+#endif
+    //上传token和统计信息给服务器
+    self.myDeviceToken = self.myDeviceToken == nil ? @"" : self.myDeviceToken;
+    
+    [Global sharedGlobal].locationCity = self.city;
+    [Global sharedGlobal].province = self.province;
+    
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"CityAddressLocation" object:nil];
+    
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"CityLocation" object:nil];
+    
+    if ([Global sharedGlobal].currCity.length == 0) {
+        [Global sharedGlobal].currCity = [Global sharedGlobal].locationCity;
+    }
+    
+    // 地区选择器
+    //    [self accessAddressListService];
+    
+    //请求设备令牌接口
+    [self accessAPNS];
+}
+
+//定位成功
+- (void)locationManager:(CLLocationManager *)manager didUpdateToLocation:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation
+{
+    NSLog(@"didUpdateToLocation......wait.....");
+    
+    [Global sharedGlobal].isLoction = YES;
+    
+    mapflag = NO;
+    
+    CLLocation *loc = [[CLLocation alloc] initWithLatitude:newLocation.coordinate.latitude - 0.00311111 longitude:newLocation.coordinate.longitude + 0.00511111]; // 0.002899
+    
+    // 获取坐标点
+    [Global sharedGlobal].myLocation = loc.coordinate;
+    
+    CLGeocoder *geocoder = [[CLGeocoder alloc]init];
+    [geocoder reverseGeocodeLocation:loc completionHandler:^(NSArray *placemarks, NSError *error) {
+        if (mapflag == NO) {
+            for (CLPlacemark *placemark in placemarks) {
+                
+                self.province = [placemark.addressDictionary objectForKey:@"State"];
+                
+                self.city = [placemark.addressDictionary objectForKey:@"City"];
+                
+                self.area = [placemark.addressDictionary objectForKey:@"SubLocality"];
+                
+                NSLog(@"placemark.addressDictionary = %@",placemark.addressDictionary);
+                NSLog(@"getAddress     address = %@",[placemark.addressDictionary objectForKey:@"Name"]);
+                [Global sharedGlobal].locationAddress = [self getAddress:[placemark.addressDictionary objectForKey:@"Name"]];
+            }
+            
+            // 定位城市赋值
+            [self locationSelf];
+            
+            [[Global sharedGlobal].locManager stopUpdatingLocation];
+            [Global sharedGlobal].locManager.delegate = nil;
+            
+            mapflag = YES;
+        }
+    }];
+    [loc release];
+    [geocoder release];
+}
+
+// 定位失败
+- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error
+{
+    NSLog(@"didFailWithError......");
+    [[Global sharedGlobal].locManager stopUpdatingLocation];
+	[Global sharedGlobal].locManager.delegate = nil;
+    
+//    查看是否授权 add vincent
+    if([CLLocationManager authorizationStatus] != kCLAuthorizationStatusAuthorized){
+        // your code
+        [Global sharedGlobal].isLoction = NO;
+        
+    }
+//    if (error.code == kCLErrorDenied){
+//        [Global sharedGlobal].isLoction = NO;
+//    } else {
+//        [Global sharedGlobal].isLoction = YES;
+//    }
+    
+    // 定位城市赋值
+    [self locationSelf];
+}
+
+#pragma mark -  ===========Application lifecycle===========
+- (void)showString:(NSDictionary*)userInfo
+{
+    //接收到消息推送后处理函数 apns支持自定义字段
+    NSLog(@"userInfo====%@",userInfo);
+    int badge = [[userInfo objectForKey:@"badge"] intValue];
+    [UIApplication sharedApplication].applicationIconBadgeNumber = badge;
+}
+
+- (void)launchNotification:(NSNotification*)notification
+{
+	[self showString:[[notification userInfo]objectForKey:@"UIApplicationLaunchOptionsRemoteNotificationKey"]];
+}
+
+- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo
+{
+	[self showString:userInfo];
+    
+    //百度云推送
+//    [BPush handleNotification:userInfo];
+}
+
+- (void)application:(UIApplication *)application didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+{
+    NSLog(@"Error in registration. Error: %@", error);
+    
+    // 获取位置
+    [self getLocation];
+}
+
+// 获取token号回调
+- (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+{
+	NSString *mydevicetoken = [[[NSMutableString stringWithFormat:@"%@",deviceToken]stringByReplacingOccurrencesOfString:@"<" withString:@""]stringByReplacingOccurrencesOfString:@">" withString:@""];
+	self.myDeviceToken = mydevicetoken;
+    
+    NSLog(@"self.myDeviceToken=======%@",self.myDeviceToken);
+    
+    //百度云推送
+//    [BPush registerDeviceToken:deviceToken];
+//    [BPush bindChannel];
+    
+    // 保存token号
+    [[NSUserDefaults standardUserDefaults] setObject:self.myDeviceToken forKey:TOKEN_KEY];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    
+    // 获取位置
+    [self getLocation];
+}
+
+#pragma mark - BPushDelegate
+//- (void) onMethod:(NSString*)method response:(NSDictionary*)data {
+//    if ([BPushRequestMethod_Bind isEqualToString:method]) {
+//        NSDictionary* res = [[NSDictionary alloc] initWithDictionary:data]; NSString *appid = [res valueForKey:BPushRequestAppIdKey];
+//        NSString *userid = [res valueForKey:BPushRequestUserIdKey]; NSString *channelid = [res valueForKey:BPushRequestChannelIdKey];
+//        int returnCode = [[res valueForKey:BPushRequestErrorCodeKey] intValue];
+//        NSString *requestid = [res valueForKey:BPushRequestRequestIdKey];
+//    }
+//}
+
+#pragma mark ====================== 分享相关回调 ========================
+// 分享回调
+- (BOOL)application:(UIApplication *)application handleOpenURL:(NSURL *)url
+{
+    return YES;
+}
+
+// 分享回调
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
+{
+    NSLog(@"sourceApplication:%@",sourceApplication);
+    
+    NSDictionary *param = nil;
+    BOOL state = NO;
+    
+    if (url != nil)
+    {
+        param = [NSDictionary dictionaryWithObjectsAndKeys:url,@"url", nil];
+    }
+    
+    if ([sourceApplication isEqualToString:@"com.sina.weibo"])
+    {
+        if (_delegate != nil && [_delegate respondsToSelector:@selector(sinaHandleCallBack:)]) {
+            state = [_delegate sinaHandleCallBack:param];
+        }
+        _delegate = nil;
+    }
+    else if ([sourceApplication isEqualToString:@"com.tencent.WeiBo"])
+    {
+        if (_delegate != nil && [_delegate respondsToSelector:@selector(tencentHandleCallBack:)]) {
+            state = [_delegate tencentHandleCallBack:param];
+        }
+        _delegate = nil;
+    }
+    else if ([sourceApplication isEqualToString:@"com.tencent.xin"])
+    {
+        if (_delegate != nil && [_delegate respondsToSelector:@selector(weixinHandleCallBack:)]) {
+            state = [_delegate weixinHandleCallBack:param];
+        }
+        _delegate = nil;
+    }
+    else if ([sourceApplication isEqualToString:@"com.tencent.mqq"])
+    {
+        if(_delegate && [_delegate respondsToSelector:@selector(qqHandleCallBack:)])
+        {
+            state = [_delegate qqHandleCallBack:param];
+        }
+        _delegate = nil;
+    }
+    
+    return state;
+}
+// QQ分享回调
+//- (void)onReq:(QQBaseReq *)req
+//{
+//    switch (req.type) {
+//        case EGETMESSAGEFROMQQREQTYPE:
+//            //            [[PfShare defaultSingle] pfShareRequest];
+//            break;
+//        default:
+//            break;
+//    }
+//}
+//// QQ分享回调
+//- (void)onResp:(QQBaseResp *)resp
+//{
+//    switch (resp.type) {
+//        case ESENDMESSAGETOQQRESPTYPE:
+//            //            [[PfShare defaultSingle] pfShareRequest];
+//            break;
+//        default:
+//            break;
+//    }
+//}
+//// QQ分享回调
+//- (void)tencentDidLogin{}
+//- (void)tencentDidNotLogin:(BOOL)cancelled{}
+//- (void)tencentDidNotNetWork{}
+
+
+#pragma mark -  =========Application AppDelegate==========
+
+- (void)applicationWillResignActive:(UIApplication *)application
+{
+    // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
+    // Use this method to pause ongoing tasks, disable timers, and throttle down OpenGL ES frame rates. Games should use this method to pause the game.
+    
+    //程序进入后台，记住状态
+    [Global sharedGlobal].isBackGround = YES;
+    int num = [chatmsg_list_model getUnreadNumber];
+    [UIApplication sharedApplication].applicationIconBadgeNumber = num>99?99:num;
+}
+
+- (void)applicationDidEnterBackground:(UIApplication *)application
+{
+    // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
+    // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+    //程序进入后台，记住状态
+    [Global sharedGlobal].isBackGround = YES;
+    //进入后台icon数字展示未读消息数目
+    int num = [chatmsg_list_model getUnreadNumber];
+    [UIApplication sharedApplication].applicationIconBadgeNumber = num>99?99:num;
+    
+    UIApplication* app = [UIApplication sharedApplication];
+    __block UIBackgroundTaskIdentifier bgTask;
+    bgTask = [app beginBackgroundTaskWithExpirationHandler:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (bgTask != UIBackgroundTaskInvalid) {
+                bgTask = UIBackgroundTaskInvalid;
+            }
+        });
+    }];
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (bgTask != UIBackgroundTaskInvalid) {
+                bgTask = UIBackgroundTaskInvalid;
+            }
+        });
+    });
+}
+
+- (void)applicationWillEnterForeground:(UIApplication *)application
+{
+    // Called as part of the transition from the background to the inactive state; here you can undo many of the changes made on entering the background.
+    
+    //程序进入前台，记住状态
+    [Global sharedGlobal].isBackGround = NO;
+    [UIApplication sharedApplication].applicationIconBadgeNumber = 0;
+    
+    //tcp连接服务器 Snail modifiied 5.23
+    BOOL isConnected = [[ChatTcpHelper shareChatTcpHelper]connectToHost];
+    //tcp登录
+    if (isConnected) {
+        [[TcpRequestHelper shareTcpRequestHelperHelper]sendLogingPackageCommandId:TCP_LOGIN_COMMAND_ID];
+    }
+    
+}
+
+- (void)applicationDidBecomeActive:(UIApplication *)application
+{
+    // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+    
+    //程序进入前台，记住状态
+    [Global sharedGlobal].isBackGround = NO;
+    [UIApplication sharedApplication].applicationIconBadgeNumber = 0;
+    
+    //请求设备令牌接口
+    if (![[Global sharedGlobal]isLogin]) {
+        [self autoLoginJuger];
+    }
+    
+//    检查版本升级
+//    [self checkUpdateApp];
+}
+
+- (void)applicationWillTerminate:(UIApplication *)application
+{
+    // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+}
+
+@end

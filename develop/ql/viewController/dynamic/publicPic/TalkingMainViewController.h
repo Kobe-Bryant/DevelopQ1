@@ -1,0 +1,31 @@
+//
+//  TalkingMainViewController.h
+//  ql
+//
+//  Created by ChenFeng on 14-1-9.
+//  Copyright (c) 2014年 ChenFeng. All rights reserved.
+//
+
+#import <UIKit/UIKit.h>
+
+#import "QBImagePickerController.h"
+#import "previewImageViewController.h"
+
+#import "WatermarkCameraViewController.h"
+
+typedef enum {
+    PublicTypeText = 0,//纯文本
+    PublicImages,//图片
+    PublicOOXX,//ooxx
+    PublicWant,//我要
+    PublicHave//我有
+}PublicType;
+
+@interface TalkingMainViewController : UIViewController<UIScrollViewDelegate,UITextViewDelegate,QBImagePickerControllerDelegate,UIActionSheetDelegate,previewImageViewControllerDelegate,UIImagePickerControllerDelegate,UINavigationControllerDelegate,WatermarkCameraViewControllerDelegate,UIAlertViewDelegate>
+
+//动态类型
+@property(nonatomic,assign) PublicType pType;
+
+@property (nonatomic,retain) NSMutableArray *selectedImages; //总共选择的照片数组
+
+@end

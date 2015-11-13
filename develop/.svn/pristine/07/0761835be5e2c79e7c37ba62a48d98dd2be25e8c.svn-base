@@ -1,0 +1,596 @@
+//
+//  MemberInfoViewController.m
+//  ql
+//
+//  Created by LuoHui on 14-1-9.
+//  Copyright (c) 2014年 LuoHui. All rights reserved.
+//
+
+#import "MemberInfoViewController.h"
+#import "PersonInfoViewController.h"
+#import "UserInfoModifyViewController.h"
+#import "UserSignModifyViewController.h"
+#import "CircleQrCodeViewController.h"
+#import "config.h"
+#import "Global.h"
+#import "userInfoCell.h"
+#import "commonCell.h"
+#import "personCell.h"
+#import "AppDelegate.h"
+#import "UIImageView+WebCache.h"
+#import "userInfoData.h"
+#import "mainpage_userInfo_model.h"
+#import "MBProgressHUD.h"
+
+#import "ThemeManager.h"
+#import "NetManager.h"
+
+#define kleftpadding 15.f
+#define padding 20.f
+
+@interface MemberInfoViewController ()
+{
+//    用户数据列表
+    UITableView *_memberTableView;
+//    用户头像
+    UIImageView *_headView;
+}
+@property (nonatomic , retain) MBProgressHUD *mbProgressHUD;//指示器
+@property (nonatomic , retain) UIImage       *scaleImage;//压缩图片
+@property (nonatomic , retain) UIImageView   *headView;//头像
+
+@end
+
+@implementation MemberInfoViewController
+@synthesize mbProgressHUD,scaleImage;
+@synthesize userInfoArry = _userInfoArry;
+@synthesize headView = _headView;
+@synthesize accType = _accType;
+
+- (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil
+{
+    self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
+    if (self) {
+        // Custom initialization
+    }
+    return self;
+}
+
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    self.view.backgroundColor = COLOR_LIGHTWEIGHT;
+    
+    self.navigationItem.title = @"个人详情";
+//    加载主视图
+    [self mainViewList];
+    
+}
+
+//修改个人数据时 即时刷新数据
+- (void)viewWillAppear:(BOOL)animated{
+    [self.navigationController setNavigationBarHidden:NO animated:NO];
+    
+    if (_accType) {
+        mainpage_userInfo_model *userMod = [[mainpage_userInfo_model alloc]init];
+        self.userInfoArry = [userMod getList];
+        [userMod release];
+        
+        NSLog(@"--userInfo:%@--",self.userInfoArry);
+        
+        [_memberTableView reloadData];
+    }
+}
+
+/**
+ *  返回按钮
+ */
+- (void)initBackBar{
+    
+    UIButton *backButton = [UIButton  buttonWithType:UIButtonTypeCustom];
+    backButton.backgroundColor = [UIColor clearColor];
+    
+    [backButton addTarget:self action:@selector(backTo) forControlEvents:UIControlEventTouchUpInside];
+    UIImage *image = [[UIImage alloc ]initWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"QRPositionRound" ofType:@"png"]];
+    
+    [backButton setImage:image forState:UIControlStateNormal];
+    backButton.frame = CGRectMake(0, 0, 30.f, 30.f);
+    RELEASE_SAFE(image);
+    
+    UIBarButtonItem  *backItem = [[UIBarButtonItem  alloc]  initWithCustomView:backButton];
+    self.navigationItem.leftBarButtonItem = backItem;
+    
+    if (IOS_VERSION_7) {
+        self.edgesForExtendedLayout = UIRectEdgeNone;
+        self.navigationController.navigationBar.translucent = NO;
+    }
+    RELEASE_SAFE(backItem);
+}
+
+/**
+ *  主界面
+ */
+- (void)mainViewList{
+    
+    _memberTableView = [[UITableView alloc]initWithFrame:CGRectMake(0.0f, 0.0f, KUIScreenWidth, 8*45+110) style:UITableViewStylePlain];
+    _memberTableView.dataSource = self;
+    _memberTableView.delegate = self;
+    _memberTableView.scrollEnabled = NO;
+    _memberTableView.separatorColor = [[ThemeManager shareInstance] getColorWithName:@"COLOR_AUXILIARY"];
+    _memberTableView.backgroundColor = [UIColor clearColor];
+    if (IOS_VERSION_7) {
+        [_memberTableView setSeparatorInset:UIEdgeInsetsZero];
+    }
+    [self.view addSubview:_memberTableView];
+    
+}
+
+// 返回
+- (void)backTo
+{
+
+}
+
+#pragma mark - UITableViewDelegate
+// 每个section有多少行
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section{
+    if (section == 0) {
+        return 3;
+    }else{
+        return 5;
+    }
+    
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{
+    
+    return 2;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section{
+    return 20.f;
+}
+
+-(UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section{
+    UIView *view = [[[UIView alloc]initWithFrame:CGRectZero] autorelease];
+    return view;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath{
+    if (indexPath.section == 0 && indexPath.row == 0) {
+        return 50.f;
+    }else{
+        return 45.f;
+    }
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath{
+
+        static NSString *CellIdentifier = @"userInfoCell";
+        personCell *cell = [tableView dequeueReusableCellWithIdentifier:CellIdentifier];
+        
+        if (cell == nil) {
+            cell = [[[personCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier] autorelease];
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            [cell.contentView setBackgroundColor:[UIColor clearColor]];
+            cell.selectionStyle = UITableViewCellSelectionStyleGray;
+        }
+    [cell setCellShowType:CellShowTypeRight];
+    
+    if (indexPath.section == 0) {
+        switch (indexPath.row) {
+            case 0:
+            {
+                cell.tipsNameL.text = @"头像";
+                [cell setCellType:CellTypeHeadImageView];
+                
+                AppDelegate *deleagte = (AppDelegate *)[UIApplication sharedApplication].delegate;
+                
+                if (self.userInfoArry.count >0 && !deleagte.headerImage) {
+                    DLog(@"%@",self.userInfoArry);
+                    
+                    NSURL *imageUrl = [NSURL URLWithString:[[self.userInfoArry objectAtIndex:0] objectForKey:@"portrait"]];
+                    
+                    if ([[[self.userInfoArry objectAtIndex:0]objectForKey:@"sex"] intValue] == 1) {
+                        [cell.headImgV setImageWithURL:imageUrl placeholderImage:IMGREADFILE(DEFAULT_FEMALE_PORTRAIT_NAME)];
+                    }else{
+                        [cell.headImgV setImageWithURL:imageUrl placeholderImage:IMGREADFILE(DEFAULT_MALE_PORTRAIT_NAME)];
+                    }
+                }else{
+                    
+                    [cell.headImgV setImage:deleagte.headerImage];
+                    
+                }
+                
+            }
+                break;
+            case 1:
+            {
+                cell.tipsNameL.text = @"姓名";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"realname"];
+                }
+                [cell setCellType:CellTypeNameLabel];
+                cell.accessoryType = UITableViewCellAccessoryNone;
+            }
+                break;
+            case 2:
+            {
+                cell.tipsNameL.text = @"签名";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"signature"];
+                }
+                [cell setCellType:CellTypeNomal];
+            }
+                break;
+            default:
+                break;
+        }
+
+    }else{
+        switch (indexPath.row) {
+            case 0:
+            {
+                cell.tipsNameL.text = @"公司名称";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"company_name"];
+                }
+                
+            }
+                break;
+            case 1:
+            {
+                cell.tipsNameL.text = @"职位";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"company_role"];
+                }
+                
+            }
+                break;
+            case 2:
+            {
+                cell.tipsNameL.text = @"电话";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"mobile"];
+                }
+                
+            }
+                break;
+            case 3:
+            {
+                cell.tipsNameL.text = @"邮箱";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"email"];
+                }
+            }
+                break;
+            case 4:
+            {
+                cell.tipsNameL.text = @"兴趣";
+                if (self.userInfoArry.count >0) {
+                    cell.txtLabel.text = [[self.userInfoArry objectAtIndex:0] objectForKey:@"interests"];
+                }
+            }
+                break;
+            default:
+                break;
+        }
+
+    }
+    
+    if (_accType == 0) {
+        cell.userInteractionEnabled = NO;
+    }else{
+        cell.userInteractionEnabled = YES;
+    }
+    
+    return cell;
+    
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath{
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    if (indexPath.section == 0) {
+        switch (indexPath.row) {
+            case 0:// 更换头像
+            {
+                UIActionSheet *edtiSheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:@"取消" destructiveButtonTitle:@"拍照" otherButtonTitles:@"从相册选择", nil];
+                [edtiSheet showInView:self.view];
+                RELEASE_SAFE(edtiSheet);
+
+            }
+                break;
+                
+            case 1:// 名字
+            {
+                //名字不能改
+            }
+                break;
+            case 2:// 签名
+            {
+                UserSignModifyViewController *userCtl = [[UserSignModifyViewController alloc]init];
+                userCtl.modifyType = 2;
+                userCtl.titleCtl = @"签名";
+                if (self.userInfoArry.count > 0) {
+                    userCtl.content = [[self.userInfoArry objectAtIndex:0] objectForKey:@"signature"];
+                }
+                [self.navigationController pushViewController:userCtl animated:YES];
+                RELEASE_SAFE(userCtl);
+            }
+                break;
+            default:
+                break;
+        }
+    }else if(indexPath.section == 1){
+        switch (indexPath.row) {
+            case 0://公司名称
+            {
+                UserInfoModifyViewController *userCtl = [[UserInfoModifyViewController alloc]init];
+                userCtl.contentType = ModifyContentTypeCompany;
+                userCtl.titleCtl = @"公司名称";
+                if (self.userInfoArry.count > 0) {
+                    userCtl.content = [[self.userInfoArry objectAtIndex:0] objectForKey:@"company_name"];
+                }
+                userCtl.modifyType = 3;
+                [self.navigationController pushViewController:userCtl animated:YES];
+                RELEASE_SAFE(userCtl);
+            }
+                break;
+            case 1:// 职位
+            {
+                UserInfoModifyViewController *userCtl = [[UserInfoModifyViewController alloc]init];
+                userCtl.contentType = ModifyContentTypePost;
+                userCtl.titleCtl = @"职位";
+                userCtl.modifyType = 4;
+                if (self.userInfoArry.count > 0) {
+                    userCtl.content = [[self.userInfoArry objectAtIndex:0] objectForKey:@"company_role"];
+                }
+                [self.navigationController pushViewController:userCtl animated:YES];
+                RELEASE_SAFE(userCtl);
+            }
+                break;
+            case 2://手机
+            {
+                UserInfoModifyViewController *userCtl = [[UserInfoModifyViewController alloc]init];
+                userCtl.contentType = ModifyContentTypeMobile;
+                userCtl.titleCtl = @"电话";
+                if (self.userInfoArry.count > 0) {
+                    userCtl.content = [[self.userInfoArry objectAtIndex:0] objectForKey:@"mobile"];
+                }
+                userCtl.modifyType = 5;
+                [self.navigationController pushViewController:userCtl animated:YES];
+                RELEASE_SAFE(userCtl);
+            }
+                break;
+            case 3://邮箱
+            {
+                UserInfoModifyViewController *userCtl = [[UserInfoModifyViewController alloc]init];
+                userCtl.contentType = ModifyContentTypeEmail;
+                userCtl.titleCtl = @"邮箱";
+                if (self.userInfoArry.count > 0) {
+                    userCtl.content = [[self.userInfoArry objectAtIndex:0] objectForKey:@"email"];
+                }
+                userCtl.modifyType = 6;
+                [self.navigationController pushViewController:userCtl animated:YES];
+                RELEASE_SAFE(userCtl);
+            }
+                break;
+            case 4://兴趣爱好
+            {
+                UserInfoModifyViewController *userCtl = [[UserInfoModifyViewController alloc]init];
+                userCtl.contentType = ModifyContentTypeHobby;
+                userCtl.titleCtl = @"兴趣爱好";
+                if (self.userInfoArry.count > 0) {
+                    userCtl.content = [[self.userInfoArry objectAtIndex:0] objectForKey:@"interests"];
+                }
+                userCtl.modifyType = 7;
+                [self.navigationController pushViewController:userCtl animated:YES];
+                RELEASE_SAFE(userCtl);
+            }
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+#pragma mark - IBActionSheet/UIActionSheet Delegate Method
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex{
+    NSLog(@"buttonIndex:%d",buttonIndex);
+    //更换头像
+    UIImagePickerController *myPicker  = [[UIImagePickerController alloc] init];
+    myPicker.delegate = self;
+    myPicker.editing = YES;
+    switch (buttonIndex) {
+        case 0:
+            //统一使用自定义相机
+            [self showWaterCamera];
+            break;
+        case 1:
+            if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]){
+                myPicker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+				myPicker.allowsEditing = YES;
+                [self presentModalViewController:myPicker animated:YES];
+            }
+            
+            break;
+        default:
+            break;
+    }
+	[myPicker release];
+}
+
+//水印相机
+-(void) showWaterCamera{
+    watermarkCameraViewController *watermarkCamera = [[watermarkCameraViewController alloc]init];
+    watermarkCamera.type = 1;
+    watermarkCamera.delegate = self;
+    [self presentViewController:watermarkCamera animated:YES completion:nil];
+    [watermarkCamera release];
+}
+
+#pragma mark - waterCameraDelegate
+-(void) didSelectImages:(NSArray *)images{
+    if (images.count) {
+        [self upLoadImage:images[0]];
+    }
+}
+
+#pragma mark - UIImagePickerControllerDelegate methods
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingImage:(UIImage *)image editingInfo:(NSDictionary *)editingInfo{
+    
+	if(picker.sourceType == UIImagePickerControllerSourceTypeCamera){
+		
+		[self dismissModalViewControllerAnimated:YES];
+        
+	}else {
+		
+		[picker dismissModalViewControllerAnimated:YES];
+    }
+    
+    [self upLoadImage:image];
+
+}
+
+//图片上传请求
+-(void) upLoadImage:(UIImage*) image{
+    MBProgressHUD *progressHUDTmp = [[MBProgressHUD alloc] initWithView:self.view];
+    progressHUDTmp.frame = CGRectMake(0, 0, KUIScreenWidth, KUIScreenHeight);
+    progressHUDTmp.center = CGPointMake(self.view.center.x, self.view.center.y);
+    self.mbProgressHUD = progressHUDTmp;
+    [progressHUDTmp release];
+    self.mbProgressHUD.labelText = @"正在上传...";
+    [self.view addSubview:self.mbProgressHUD];
+    [self.mbProgressHUD show:YES];
+    
+    AppDelegate *deleagte = (AppDelegate *)[UIApplication sharedApplication].delegate;
+	deleagte.headerImage = image;
+    
+    // 压缩图片
+    self.scaleImage = [image scaleToSize:CGSizeMake(60, 60)];
+    NSData *pictureData = UIImageJPEGRepresentation(self.scaleImage,1);
+    
+    NSString *reqUrl = @"member/updateimgs.do?param=";
+	
+    NSMutableDictionary *requestDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                       [Global sharedGlobal].user_id,@"user_id",
+                                       [NSNumber numberWithInt:[[Global sharedGlobal].org_id intValue]],@"org_id",
+                                       nil];
+    
+    [[NetManager sharedManager] accessService:requestDic data:pictureData command:MEMBER_UPDATEPIMAGE_COMMAND_ID accessAdress:reqUrl delegate:self withParam:nil];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker
+{
+    [picker dismissModalViewControllerAnimated:YES];
+    
+}
+
+//网络请求回调
+- (void)didFinishCommand:(NSMutableArray*)resultArray cmd:(int)commandid withVersion:(int)ver{
+	NSLog(@"information finish");
+    if (![[resultArray lastObject] isKindOfClass:[NSString class]]) {
+        // 判断是否有网络
+        NSLog(@"ret==%@",resultArray);
+        
+        int resultInt = [[[resultArray objectAtIndex:0] objectForKey:@"ret"]intValue];
+        switch (commandid) {
+                
+            case MEMBER_UPDATEPIMAGE_COMMAND_ID:
+            {
+                if (resultInt==1) {
+                    
+                    //上传成功后开辟子线程更新本地数据库头像路径
+                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+   
+                          [self performSelectorOnMainThread:@selector(updateImageSuccess:) withObject:resultArray waitUntilDone:NO];
+                        
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            //主线程更新UI
+                         
+                            [_memberTableView reloadData];
+                        });
+                    });                    
+                }else {
+                    [self performSelectorOnMainThread:@selector(updateImageFail) withObject:nil waitUntilDone:NO];
+                }
+            }break;
+            default:
+                break;
+        }
+	}else{
+      
+        [self.mbProgressHUD hide:YES];
+        [self.mbProgressHUD removeFromSuperViewOnHide];
+        
+        if ([Common connectedToNetwork]) {
+            // 网络繁忙，请重新再试
+            [Common checkProgressHUD:@"当前网络不可用，请检查你的网络设置" andImage:nil showInView:self.view];
+        } else {
+            // 当前网络不可用，请重新再试
+            [Common checkProgressHUD:KCWNetNOPrompt andImage:nil showInView:self.view];
+        }
+        
+    }
+    
+}
+
+//头像上传成功    更新数据库 同时更换左侧边栏用户头像
+- (void)updateImageSuccess:(NSMutableArray*)resultArray
+{
+    [self.mbProgressHUD hide:YES];
+    [self.mbProgressHUD removeFromSuperViewOnHide];
+//    [Common checkProgressHUD:@"上传成功" andImage:nil showInView:self.view];
+    [Common checkProgressHUDShowInAppKeyWindow:@"上传成功" andImage:KAccessSuccessIMG];
+    
+    AppDelegate *deleagte = (AppDelegate *)[UIApplication sharedApplication].delegate;
+    NSDictionary* dic = [Global sharedGlobal].userInfo;
+    [Global sharedGlobal].userInfo = [NSDictionary dictionaryWithObjectsAndKeys:
+                                      [dic objectForKey:@"id"],@"id",
+                                      [dic objectForKey:@"realname"],@"realname",
+                                      [[resultArray lastObject] objectForKey:@"portrait"],@"portrait",
+                                      [dic objectForKey:@"role"],@"role",
+                                      [dic objectForKey:@"company_name"],@"company_name",
+                                      [dic objectForKey:@"front_character"],@"front_character",
+                                      nil];
+    
+    mainpage_userInfo_model* userInfoMod = [[mainpage_userInfo_model alloc] init];
+    userInfoMod.where = [NSString stringWithFormat:@"id = %@",[Global sharedGlobal].user_id];
+    [userInfoMod updateDB:[NSDictionary dictionaryWithObjectsAndKeys:
+                           [[resultArray lastObject] objectForKey:@"portrait"],@"portrait",
+                           nil]];
+    
+    [userInfoMod release];
+    
+    [[NSNotificationCenter defaultCenter]postNotificationName:@"updateHeadImage" object:deleagte.headerImage];
+    
+}
+
+//上传头像失败
+-(void)updateImageFail{
+
+    [self.mbProgressHUD hide:YES];
+    [self.mbProgressHUD removeFromSuperViewOnHide];
+    
+//    [Common checkProgressHUD:@"上传头像失败" andImage:nil showInView:self.view];
+    [Common checkProgressHUDShowInAppKeyWindow:@"上传头像失败" andImage:KAccessFailedIMG];
+}
+
+- (void)didReceiveMemoryWarning
+{
+    [super didReceiveMemoryWarning];
+}
+
+- (void)dealloc
+{
+    RELEASE_SAFE(mbProgressHUD);
+    RELEASE_SAFE(scaleImage);
+    RELEASE_SAFE(_headView);
+    RELEASE_SAFE(_userInfoArry)
+    RELEASE_SAFE(_memberTableView);
+    [super dealloc];
+}
+
+@end

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>COLOR_TOPBAR</key>
+	<string>153,37,22</string>
+	<key>COLOR_TOPBARTXT</key>
+	<string>255,255,255</string>
+	<key>COLOR_THEME</key>
+	<string>204,52,51</string>
+	<key>COLOR_AUXILIARY</key>
+	<string>204,204,204</string>
+	<key>COLOR_SECONDARY</key>
+	<string>102,102,102</string>
+	<key>COLOR_IMPORTANT</key>
+	<string>51,51,51</string>
+	<key>COLOR_LISTTXT</key>
+	<string>51,51,51</string>
+	<key>COLOR_HEAVY</key>
+	<string>49,55,60</string>
+	<key>COLOR_LIGHTWEIGHT</key>
+	<string>232,237,242</string>
+</dict>
+</plist>

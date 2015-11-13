@@ -1,0 +1,37 @@
+//
+//  DynamicViewController.h
+//  ql
+//
+//  Created by ChenFeng on 14-1-9.
+//  Copyright (c) 2014年 ChenFeng. All rights reserved.
+//
+
+#import <UIKit/UIKit.h>
+
+#import "MBProgressHUD.h"
+#import "LoadMoreTableFooterView.h"
+#import "EGORefreshTableHeaderView.h"
+
+#import "WatermarkCameraViewController.h"
+
+@interface DynamicMainViewController : UIViewController<UIScrollViewDelegate,LoadMoreTableFooterDelegate,EGORefreshTableHeaderDelegate,UITableViewDataSource,UITableViewDelegate,WatermarkCameraViewControllerDelegate>
+{
+    //下拉刷新和下拉加载更多
+    EGORefreshTableHeaderView* headerView;
+    LoadMoreTableFooterView* footerVew;
+    BOOL isLoading;
+    
+    //指示框
+    MBProgressHUD* progress;
+    
+    //选中的列表行
+    int selectedIndex;
+    
+    //有新动态时的提示框
+    UILabel *progressHUDTmp;
+    
+    //动态列表
+    UITableView* dytableview;
+}
+
+@end

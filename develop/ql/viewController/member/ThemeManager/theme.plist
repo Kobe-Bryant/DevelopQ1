@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>默认</key>
+	<string></string>
+	<key>汇丰商学院</key>
+	<string>Skins/default</string>
+	<key>企业家幸福力</key>
+	<string>Skins/black</string>
+</dict>
+</plist>
